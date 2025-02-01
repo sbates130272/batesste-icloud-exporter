@@ -1,60 +1,121 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
 
+import re
+import time
+
 import prometheus_client as pc
-import pyicloud as pic
+from pyicloud import PyiCloudService
 
-def init(args):
+def two_fa(icloud):
+    """
+    A simple function to perform the Two Factor Authentication (2FA)
+    steps in an iCloud login.
+    """
+    print("Two-factor authentication required.")
+    code = input("Enter the code you received of one of your approved devices: ")
+    result = icloud.validate_2fa_code(code)
+    print("Code validation result: %s" % result)
+    if not result:
+        print("Failed to verify security code")
 
-    icloud = pic.PyiCloudService(args.user, args.password)
+def two_sa(icloud):
+    """
+    A simple function to perform the Two Step Authentication (2SA)
+    steps in an iCloud login.
+    """
+    import click
+    print("Two-step authentication required. Your trusted devices are:")
+    devices = icloud.trusted_devices
+    for i, device in enumerate(devices):
+        print("  %s: %s" % (i, device.get('deviceName',
+                                          "SMS to %s" % device.get('phoneNumber'))))
 
-    if icloud.requires_2fa:
-        print("Two-factor authentication required.")
-        code = input("Enter the code you received of one of your approved devices: ")
-        result = icloud.validate_2fa_code(code)
-        print("Code validation result: %s" % result)
+    device = click.prompt('Which device would you like to use?', default=0)
+    device = devices[device]
+    if not icloud.send_verification_code(device):
+        print("Failed to send verification code")
+        sys.exit(1)
+    code = click.prompt('Please enter validation code')
+    if not icloud.validate_verification_code(device, code):
+        print("Failed to verify verification code")
+        sys.exit(1)
 
-        if not result:
-            print("Failed to verify security code")
-            sys.exit(1)
+def trust(icloud):
+    """
+    A simple function to try and setup a trusted session.
+    """
+    print("Session is not trusted. Requesting trust...")
+    result = icloud.trust_session()
+    print("Session trust result %s" % result)
+    if not result:
+        print("Failed to request trust. You will be prompted for the code again in the coming weeks")
 
-        if not icloud.is_trusted_session:
-            print("Session is not trusted. Requesting trust...")
+class iCloudExporter:
 
+    def __init__(self, port, interval, auth_file):
+        self.icloud = None
+        self.port = port
+        self.interval = interval
+        self.auth_file = auth_file
+        self.labels = [ 'device' ]
+        self.ic_time = pc.Gauge("icloud_location_timestamp",
+                                "Timestamp of location measurement of icloud device",
+                                [ 'device' ])
+        self.ic_lat = pc.Gauge("icloud_location_latitude",
+                               "Latitude measurement of icloud device",
+                               [ 'device' ])
+        self.ic_long = pc.Gauge("icloud_location_longtitude",
+                                "Longtitude measurement of icloud device",
+                                [ 'device' ])
 
+    def connect(self):
+        """
+        This function connects us to the Apple iCloud servers.
+        """
+        with open(self.auth_file) as f:
+            data = json.load(f)
+        self.icloud = PyiCloudService(data['username'],
+                                      data['password'])
+        if self.icloud.requires_2fa:
+            two_fa(self.icloud)
+            if not self.icloud.is_trusted_session:
+                trust(self.icloud)
+        elif self.icloud.requires_2sa:
+            two_sa(self.icloud)
 
+    def export_location(self, device, location):
+        """
+        A function to export the metrics we care about with respect to
+        devices that can be located.
+        """
+        print(device)
+        print(location)
+        print(dir(device))
+        labelname = re.sub('[^a-zA-Z0-9_]','_',str(device).lower())
+        print(labelname)
+        self.ic_time.labels(device=labelname).set(location['timeStamp'])
+        self.ic_lat.labels(device=labelname).set(location['latitude'])
+        self.ic_long.labels(device=labelname).set(location['longitude'])
 
-
-            r0
-            esult = icloud.trust_session()
-                print("Session trust result %s" % result)
-
-                if not result:
-                    print("Failed to request trust. You will likely be prompted for the code again in the coming weeks")
-    elif icloud.requires_2sa:
-
-        import click
-        print("Two-step authentication required. Your trusted devices are:")
-
-        devices = icloud.trusted_devices
-        for i, device in enumerate(devices):
-            print(
-                "  %s: %s" % (i, device.get('deviceName',
-                                            "SMS to %s" % device.get('phoneNumber')))
-            )
-
-        device = click.prompt('Which device would you like to use?', default=0)
-        device = devices[device]
-        if not icloud.send_verification_code(device):
-            print("Failed to send verification code")
-            sys.exit(1)
-
-        code = click.prompt('Please enter validation code')
-        if not icloud.validate_verification_code(device, code):
-            print("Failed to verify verification code")
-            sys.exit(1)
-
-    return icloud
+    def run(self):
+        """
+        This is the main loop of the exporter that obtains information
+        from the Apple servers and exports key metrics.
+        """
+        pc.start_http_server(port=self.port)
+        while True:
+            self.connect()
+            for device in self.icloud.devices:
+                try:
+                    location = device.location()
+                except:
+                    location = None
+                    pass
+                if location:
+                    self.export_location(device,
+                                         location)
+            time.sleep(self.interval)
 
 if __name__ == '__main__':
 
@@ -75,26 +136,9 @@ if __name__ == '__main__':
                         help='The authorization (username and password) file icloud.')
     args = parser.parse_args()
 
-    icloud = init(args)
-
-    try:
-        with open(args.token_file) as f:
-            data = json.load(f)
-
-        vue.login(id_token=data['id_token'],
-                  access_token=data['access_token'],
-                  refresh_token=data['refresh_token'],
-                  token_storage_file=args.token_file)
-    except:
-        with open(args.auth_file) as f:
-            data = json.load(f)
-        vue.login(username=data['username'],
-                  password=data['password'],
-                  token_storage_file=args.token_file)
-
-    print("emvue-exporter: connected to Emporia web-server.")
-    exporter = emVueMetricsExporter(port=args.port,
-                                    interval=args.interval)
+    exporter = iCloudExporter(port=args.port,
+                              interval=args.interval,
+                              auth_file=args.auth_file)
     try:
         exporter.run()
     except KeyboardInterrupt:
