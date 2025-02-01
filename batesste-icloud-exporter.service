@@ -1,0 +1,13 @@
+[Unit]
+Description=A prometheus exporter related to my Apple iCloud
+After=network.target
+
+[Service]
+ExecStart=/usr/local/venvs/batesste-icloud-exporter/bin/python \
+    /usr/local/bin/batesste-icloud-exporter.py \
+    --auth_file /usr/local/share/batesste-icloud-exporter/.user.json \
+    --token_file /usr/local/share/batesste-icloud-exporter/.keys.json
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

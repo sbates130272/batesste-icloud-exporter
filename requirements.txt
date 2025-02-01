@@ -1,0 +1,2 @@
+pypicloud >= 1.3.12
+prometheus-client >= 0.21.1
