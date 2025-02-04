@@ -53,11 +53,12 @@ def trust(icloud):
 
 class iCloudExporter:
 
-    def __init__(self, port, interval, auth_file):
+    def __init__(self, port, interval, auth_file, verbose):
         self.icloud = None
         self.port = port
         self.interval = interval
         self.auth_file = auth_file
+        self.verbose = verbose
         self.labels = [ 'device' ]
         self.ic_time = pc.Gauge("icloud_location_timestamp",
                                 "Timestamp of location measurement of icloud device",
@@ -89,11 +90,7 @@ class iCloudExporter:
         A function to export the metrics we care about with respect to
         devices that can be located.
         """
-        print(device)
-        print(location)
-        print(dir(device))
         labelname = re.sub('[^a-zA-Z0-9_]','_',str(device).lower())
-        print(labelname)
         self.ic_time.labels(device=labelname).set(location['timeStamp'])
         self.ic_lat.labels(device=labelname).set(location['latitude'])
         self.ic_long.labels(device=labelname).set(location['longitude'])
@@ -105,8 +102,12 @@ class iCloudExporter:
         """
         pc.start_http_server(port=self.port)
         while True:
+            if self.verbose:
+                print("Connecting to iCloud and collecting stats.")
             self.connect()
             for device in self.icloud.devices:
+                if self.verbose:
+                    print("  Found a device: %s" % str(device))
                 try:
                     location = device.location()
                 except:
@@ -126,6 +127,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='A Prometheus metrics exporter for Apple iCloud related things.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='Be verbose')
     parser.add_argument('--port', '-p', metavar='PORT',
                         type=int, default=9948,
                         help='The TCP/IP port to put metrics on.')
@@ -138,7 +141,8 @@ if __name__ == '__main__':
 
     exporter = iCloudExporter(port=args.port,
                               interval=args.interval,
-                              auth_file=args.auth_file)
+                              auth_file=args.auth_file,
+                              verbose=args.verbose)
     try:
         exporter.run()
     except KeyboardInterrupt:
