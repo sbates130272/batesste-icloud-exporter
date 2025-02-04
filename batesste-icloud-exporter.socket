@@ -1,0 +1,3 @@
+[Socket]
+ListenFIFO=%t/batesste-icloud-exporter.stdin
+Service=batesste-icloud-exporter.service
