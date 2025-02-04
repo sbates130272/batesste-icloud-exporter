@@ -53,13 +53,18 @@ def trust(icloud):
 
 class iCloudExporter:
 
-    def __init__(self, port, interval, auth_file, verbose):
+    def __init__(self, args):
         self.icloud = None
-        self.port = port
-        self.interval = interval
-        self.auth_file = auth_file
-        self.verbose = verbose
+        self.port = args.port
+        self.interval = args.interval
+        self.auth_file = args.auth_file
+        self.twofa_file = args.twofa_file
+        self.systemd = args.systemd
+        self.needs_2fa = False
+        self.verbose = args.verbose
         self.labels = [ 'device' ]
+        self.ic_2fa  = pc.Gauge("icloud_auth_2fa_update_needed",
+                                "Indicator that an updated 2FA code is needed")
         self.ic_time = pc.Gauge("icloud_location_timestamp",
                                 "Timestamp of location measurement of icloud device",
                                 [ 'device' ])
@@ -72,18 +77,52 @@ class iCloudExporter:
 
     def connect(self):
         """
-        This function connects us to the Apple iCloud servers.
+        This function connects us to the Apple iCloud servers. Also
+        when we are in systemd mode it informs the user (via the
+        exporter itself) that a new 2FA code is needed. Also when in
+        systemd mode we do not bother to try and connect unless the
+        2FA file exists and contains a 6 digit code.
         """
+
         with open(self.auth_file) as f:
             data = json.load(f)
-        self.icloud = PyiCloudService(data['username'],
-                                      data['password'])
-        if self.icloud.requires_2fa:
-            two_fa(self.icloud)
-            if not self.icloud.is_trusted_session:
-                trust(self.icloud)
-        elif self.icloud.requires_2sa:
-            two_sa(self.icloud)
+
+        if self.systemd:
+            if self.needs_2fa:
+                f = open(self.twofa_file, "r")
+                code = f.read().rstrip()
+                f.close
+                if code.isnumeric():
+                    self.icloud.validate_2fa_code(code)
+                if self.icloud.requires_2fa or self.icloud.requires_2sa:
+                    f = open(self.twofa_file, "w")
+                    f.truncate(0)
+                    f.close
+                    return 1
+                self.needs_2fa = False
+                f = open(self.twofa_file, "w")
+                f.truncate(0)
+                f.close
+                return self.interval
+            else:
+                self.icloud = PyiCloudService(data['username'],
+                                              data['password'])
+                if self.icloud.requires_2fa or self.icloud.requires_2sa:
+                    self.needs_2fa = True
+                    return 1
+        else:
+            self.icloud = PyiCloudService(data['username'],
+                                          data['password'])
+            if self.icloud.requires_2fa:
+                two_fa(self.icloud)
+                if not self.icloud.is_trusted_session:
+                    trust(self.icloud)
+            elif self.icloud.requires_2sa:
+                two_sa(self.icloud)
+
+        self.needs_2fa = False
+
+        return self.interval
 
     def export_location(self, device, location):
         """
@@ -103,20 +142,27 @@ class iCloudExporter:
         pc.start_http_server(port=self.port)
         while True:
             if self.verbose:
-                print("Connecting to iCloud and collecting stats.")
-            self.connect()
-            for device in self.icloud.devices:
-                if self.verbose:
-                    print("  Found a device: %s" % str(device))
-                try:
-                    location = device.location()
-                except:
-                    location = None
-                    pass
-                if location:
-                    self.export_location(device,
-                                         location)
-            time.sleep(self.interval)
+                if self.needs_2fa:
+                    print("Attempting 2FA connection to iCloud.")
+                else:
+                    print("Connecting to iCloud and collecting stats.")
+            interval = self.connect()
+            if self.needs_2fa:
+                self.ic_2fa.set(1)
+            else:
+                self.ic_2fa.set(0)
+                for device in self.icloud.devices:
+                    if self.verbose:
+                        print("  Found a device: %s" % str(device))
+                    try:
+                        location = device.location()
+                    except:
+                        location = None
+                        pass
+                    if location:
+                        self.export_location(device,
+                                             location)
+            time.sleep(interval)
 
 if __name__ == '__main__':
 
@@ -129,6 +175,8 @@ if __name__ == '__main__':
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Be verbose')
+    parser.add_argument('--systemd', '-s', action='store_true',
+                        help='Run in systemd mode, helps with 2FA.')
     parser.add_argument('--port', '-p', metavar='PORT',
                         type=int, default=9948,
                         help='The TCP/IP port to put metrics on.')
@@ -137,12 +185,11 @@ if __name__ == '__main__':
                         help='The interval at which to update metrics.')
     parser.add_argument('--auth_file', metavar='AUTH_FILE', default='.user.json',
                         help='The authorization (username and password) file icloud.')
+    parser.add_argument('--twofa_file', metavar='TWO_FA_FILE', default=None,
+                        help='The file the program scans to detect a new 2FA code (systemd)')
     args = parser.parse_args()
 
-    exporter = iCloudExporter(port=args.port,
-                              interval=args.interval,
-                              auth_file=args.auth_file,
-                              verbose=args.verbose)
+    exporter = iCloudExporter(args)
     try:
         exporter.run()
     except KeyboardInterrupt:
