@@ -1,0 +1,21 @@
+name: batesste-icloud-exporter
+on:
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+      - name: Setup python and pip requirements
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Setup pip requirements
+        run: pip install -r requirements.txt
