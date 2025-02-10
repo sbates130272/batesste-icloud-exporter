@@ -65,6 +65,8 @@ class iCloudExporter:
         self.labels = [ 'device' ]
         self.ic_2fa  = pc.Gauge("icloud_auth_2fa_update_needed",
                                 "Indicator that an updated 2FA code is needed")
+        self.ic_photos  = pc.Gauge("icloud_photos_total_photos",
+                                "Total number of photos stored in iCloud")
         self.ic_time = pc.Gauge("icloud_location_timestamp",
                                 "Timestamp of location measurement of icloud device",
                                 [ 'device' ])
@@ -151,6 +153,7 @@ class iCloudExporter:
                 self.ic_2fa.set(1)
             else:
                 self.ic_2fa.set(0)
+                self.ic_photos.set(len(self.icloud.photos.all))
                 for device in self.icloud.devices:
                     if self.verbose:
                         print("  Found a device: %s" % str(device))

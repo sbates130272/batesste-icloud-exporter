@@ -19,7 +19,7 @@ Then run the following command:
 ```
 ./batesste-icloud-exporter.py
 ```
-If you point a browser at ```localhost:99478``` you should see the
+If you point a browser at ```localhost:9978``` you should see the
 metrics for the iCloud services  linked to your account. For more
 usage options:
 ```
