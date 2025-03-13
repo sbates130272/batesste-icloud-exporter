@@ -52,9 +52,9 @@ following steps (tested on Ubuntu 24.04):
 When running in systemd mode or when the session token expires we need
 to do the following:
 
-1. ```sudo systemctl restart batesste-icloud-tracker```
+1. ```sudo systemctl restart batesste-icloud-exporter```
 1. Get the 2FA code which will appear on your approved Apple devices.
-1. ```sudo sh -c "echo '<2FA Code' > /usr/local/share/batesste-icloud-exporter/.twofa.txt"```
+1. ```sudo sh -c "echo '<2FA Code>' > /usr/local/share/batesste-icloud-exporter/.twofa.txt"```
 
 [ref-prom]: https://prometheus.io/
 [ref-pyicloud]: https://github.com/picklepete/pyicloud
