@@ -6,6 +6,7 @@ import time
 
 import prometheus_client as pc
 from pyicloud import PyiCloudService
+from pyicloud.exceptions import PyiCloudAPIResponseException
 
 def two_fa(icloud):
     """
@@ -86,6 +87,14 @@ class iCloudExporter:
         exporter itself) that a new 2FA code is needed. Also when in
         systemd mode we do not bother to try and connect unless the
         2FA file exists and contains a 6 digit code.
+
+        accept_terms=True accepts Apple's iCloud terms of service on
+        the account's behalf. pyicloud 2.x raises
+        PyiCloudAcceptTermsException and refuses to serve any data
+        whenever Apple revises them, which for an unattended exporter
+        means going dark until someone logs in on a device. The
+        trade-off is that updated terms get agreed to here without
+        anyone reading them.
         """
 
         with open(self.auth_file) as f:
@@ -110,13 +119,15 @@ class iCloudExporter:
                 return self.interval
             else:
                 self.icloud = PyiCloudService(data['username'],
-                                              data['password'])
+                                              data['password'],
+                                              accept_terms=True)
                 if self.icloud.requires_2fa or self.icloud.requires_2sa:
                     self.needs_2fa = True
                     return 1
         else:
             self.icloud = PyiCloudService(data['username'],
-                                          data['password'])
+                                          data['password'],
+                                          accept_terms=True)
             if self.icloud.requires_2fa:
                 two_fa(self.icloud)
                 if not self.icloud.is_trusted_session:
@@ -156,15 +167,24 @@ class iCloudExporter:
             else:
                 self.ic_2fa.set(0)
                 self.ic_photos.set(len(self.icloud.photos.all))
-                self.ic_contacts.set(len(self.icloud.contacts.all()))
+                self.ic_contacts.set(len(self.icloud.contacts.all))
                 for device in self.icloud.devices:
                     if self.verbose:
                         print("  Found a device: %s" % str(device))
+                    # A device that cannot be located is normal -- it
+                    # is powered off, offline, or not sharing. Narrow
+                    # the catch to that case rather than everything:
+                    # a bare except here hid the pyicloud 2.x change
+                    # of location from a method to a property, and
+                    # every device silently reported no location for
+                    # as long as that went unnoticed.
                     try:
-                        location = device.location()
-                    except:
+                        location = device.location
+                    except PyiCloudAPIResponseException as e:
+                        if self.verbose:
+                            print("    No location for %s: %s"
+                                  % (str(device), e))
                         location = None
-                        pass
                     if location:
                         self.export_location(device,
                                              location)

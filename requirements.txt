@@ -1,2 +1,15 @@
-pyicloud >= 1.0.0
+# 2.x is required, not merely preferred: pyicloud 1.0.0 cannot
+# authenticate against Apple's current endpoints. It receives a 503
+# from the login endpoint and reports it as "Invalid email/password
+# combination", which sends you looking in entirely the wrong place.
+pyicloud >= 2.7.0
 prometheus-client >= 0.21.1
+
+# Not ours, and not optional despite what pyicloud's metadata says.
+# pyicloud 2.7.0 declares rich only under its "dev" and "cli" extras,
+# but its notes rendering module (services/notes/rendering/
+# exporter.py) imports it at package import time, so a plain
+# `import pyicloud` raises
+# ModuleNotFoundError without it. Drop this line if upstream either
+# makes that import lazy or promotes rich to a hard dependency.
+rich >= 15.0.0

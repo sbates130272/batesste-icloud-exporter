@@ -1,2 +1,4 @@
 *~
 .user.json
+.venv
+__pycache__
